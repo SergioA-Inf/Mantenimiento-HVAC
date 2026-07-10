@@ -1,0 +1,7 @@
+streamlit
+pandas
+fpdf2
+plotly
+requests
+supabase
+st-gsheets-connection
