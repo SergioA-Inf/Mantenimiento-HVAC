@@ -5,3 +5,4 @@ plotly
 requests
 supabase
 st-gsheets-connection
+streamlit-drawable-canvas

@@ -10,10 +10,13 @@ Modo Proveedor (URL con ?orden=OT-XXXX): checklist movil para el tecnico externo
 import json
 import os
 from datetime import date, datetime, timedelta
+from io import BytesIO
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from PIL import Image
+from streamlit_drawable_canvas import st_canvas
 
 from data_store import (
     ESTADOS_OPERATIVOS, NOTAS_CATEGORIA, get_store, generar_id_orden,
@@ -194,6 +197,34 @@ def render_modo_proveedor(store, orden_id: str):
                     "O subir desde galeria", type=["jpg", "jpeg", "png"],
                     accept_multiple_files=True, key=f"gal_{orden_id}_{tag}")
 
+            st.markdown("#### ✍️ Firma del Tecnico")
+            tab_dibujar, tab_subir = st.tabs(["🖊️ Firmar con el dedo", "🖼️ Subir imagen de firma"])
+            firma_bytes = None
+            with tab_dibujar:
+                resultado_canvas = st_canvas(
+                    fill_color="rgba(255, 255, 255, 0)",
+                    stroke_width=3,
+                    stroke_color="#1a1a1a",
+                    background_color="#FFFFFF",
+                    height=180,
+                    width=350,
+                    drawing_mode="freedraw",
+                    display_toolbar=True,
+                    key=f"firma_canvas_{orden_id}_{tag}",
+                )
+                hay_trazo = bool(resultado_canvas.json_data and resultado_canvas.json_data.get("objects"))
+                if hay_trazo and resultado_canvas.image_data is not None:
+                    firma_img = Image.fromarray(resultado_canvas.image_data.astype("uint8"), mode="RGBA")
+                    buffer_firma = BytesIO()
+                    firma_img.save(buffer_firma, format="PNG")
+                    firma_bytes = buffer_firma.getvalue()
+            with tab_subir:
+                archivo_firma = st.file_uploader(
+                    "Subir imagen de firma (foto o archivo)", type=["jpg", "jpeg", "png"],
+                    key=f"firma_subida_{orden_id}_{tag}")
+                if archivo_firma is not None:
+                    firma_bytes = archivo_firma.getvalue()
+
             if st.button(f"💾 Guardar reporte de {tag}", key=f"submit_{orden_id}_{tag}",
                           type="primary"):
                 if proximo_mant is None:
@@ -212,6 +243,11 @@ def render_modo_proveedor(store, orden_id: str):
                         ruta = store.guardar_evidencia(orden_id, tag, f"{ts}_{nombre}", contenido)
                         evidencia_paths.append(ruta)
 
+                    firma_url = ""
+                    if firma_bytes:
+                        ts = datetime.now().strftime("%Y%m%d%H%M%S")
+                        firma_url = store.guardar_evidencia(orden_id, tag, f"firma_{ts}.png", firma_bytes)
+
                     reporte = {
                         "reporte_id": f"{orden_id}_{tag}_{datetime.now():%H%M%S}".replace(" ", ""),
                         "orden_id": orden_id, "tag_equipo": tag, "categoria": equipo["categoria"],
@@ -229,6 +265,7 @@ def render_modo_proveedor(store, orden_id: str):
                         "observaciones": observaciones,
                         "proximo_mantenimiento": str(proximo_mant),
                         "evidencia_urls": unir_lista(evidencia_paths),
+                        "firma_url": firma_url,
                         "fecha_registro": str(datetime.now()),
                     }
                     store.guardar_reporte(reporte)

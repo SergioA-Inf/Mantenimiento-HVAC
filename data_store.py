@@ -51,7 +51,7 @@ COLUMNAS_REPORTES = [
     "zona", "nivel", "tecnico", "fecha_servicio", "hora_inicio", "hora_fin",
     "estado_final", "sintomas_detectados", "tareas_completadas", "tareas_totales",
     "checklist_json", "observaciones", "proximo_mantenimiento", "evidencia_urls",
-    "fecha_registro",
+    "firma_url", "fecha_registro",
 ]
 
 DATA_DIR = "data"
