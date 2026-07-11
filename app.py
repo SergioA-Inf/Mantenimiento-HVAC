@@ -21,7 +21,7 @@ from streamlit_drawable_canvas import st_canvas
 from data_store import (
     ESTADOS_OPERATIVOS, NOTAS_CATEGORIA, get_store, generar_id_orden,
     parsear_equipos_orden, unir_lista, separar_lista, serializar_checklist,
-    parsear_checklist, diagnosticar_secretos,
+    parsear_checklist, diagnosticar_secretos, COLUMNAS_EQUIPOS, COLUMNAS_EQUIPOS_EDITABLES,
 )
 from pdf_utils import (generar_pdf_individual, generar_pdf_consolidado, diagnosticar_logo)
 
@@ -291,11 +291,11 @@ def render_modo_proveedor(store, orden_id: str):
 # MODO GESTOR
 # ===========================================================================
 def guardar_cambios_equipos(store, df_mostrar: pd.DataFrame, df_editado: pd.DataFrame,
-                              df_equipos_enr: pd.DataFrame):
+                              df_equipos_enr: pd.DataFrame, columnas_editables: list):
     """
     Compara df_mostrar (estado original mostrado en el editor) contra df_editado
     (lo que devolvio st.data_editor) fila por fila, por posicion, y guarda solo
-    los equipos que realmente cambiaron en 'tag', 'categoria', 'zona' o 'nivel'.
+    los equipos que realmente cambiaron en alguna de `columnas_editables`.
 
     Maneja el caso especial de renombrar el 'tag' (llave primaria): elimina el
     registro viejo y crea uno nuevo, preservando el resto de sus campos
@@ -315,12 +315,10 @@ def guardar_cambios_equipos(store, df_mostrar: pd.DataFrame, df_editado: pd.Data
 
     for i, tag_original in enumerate(tags_originales):
         fila_nueva = df_editado_plano.iloc[i]
+        fila_original = df_mostrar.iloc[i]
         tag_nuevo = str(fila_nueva["tag"]).strip()
-        cambio = (
-            tag_nuevo != tag_original
-            or str(fila_nueva["categoria"]) != str(df_mostrar.iloc[i]["categoria"])
-            or str(fila_nueva["zona"]) != str(df_mostrar.iloc[i]["zona"])
-            or str(fila_nueva["nivel"]) != str(df_mostrar.iloc[i]["nivel"])
+        cambio = any(
+            str(fila_nueva[c]) != str(fila_original[c]) for c in columnas_editables
         )
         if not cambio:
             continue
@@ -343,19 +341,14 @@ def guardar_cambios_equipos(store, df_mostrar: pd.DataFrame, df_editado: pd.Data
             continue
         registro_completo = registro_original.iloc[0].to_dict()
 
-        registro_actualizado = {
-            **registro_completo,
-            "tag": tag_nuevo,
-            "categoria": fila_nueva["categoria"],
-            "zona": fila_nueva["zona"],
-            "nivel": fila_nueva["nivel"],
-        }
+        registro_actualizado = dict(registro_completo)
+        for c in columnas_editables:
+            registro_actualizado[c] = fila_nueva[c]
+        registro_actualizado["tag"] = tag_nuevo
+
         # Solo dejamos las columnas reales del esquema de equipos (se cuelan
         # columnas calculadas como umbral_dias/estado_alerta al copiar el dict).
-        registro_actualizado = {k: registro_actualizado.get(k, "") for k in
-                                 ["tag", "categoria", "especificaciones", "modelo",
-                                  "tiene_vfd", "zona", "nivel", "estado_operativo",
-                                  "ultimo_mantenimiento", "proximo_mantenimiento"]}
+        registro_actualizado = {k: registro_actualizado.get(k, "") for k in COLUMNAS_EQUIPOS}
 
         if tag_nuevo != tag_original:
             store.eliminar_equipo(tag_original)
@@ -659,6 +652,12 @@ def render_administracion(store):
         if categoria_sel == "+ Nueva categoria":
             categoria_sel = st.text_input("Nombre de la nueva categoria", key="crud_categoria_libre")
         especs = st.text_area("Especificaciones tecnicas", key="crud_nuevo_especs")
+        col_serie, col_cap = st.columns(2)
+        with col_serie:
+            numero_serie_nuevo = st.text_input("N° de Serie (opcional)", key="crud_nuevo_serie")
+        with col_cap:
+            capacidad_nueva = st.text_input("Capacidad (opcional)", key="crud_nuevo_capacidad",
+                                              placeholder="ej: 194.8 TR, 600 GPM, 12,000 Btu/h...")
         modelo_nuevo_equipo = st.selectbox(
             "Modelo de mantenimiento", list(modelos.keys()),
             format_func=lambda k: f"{k} — {modelos[k]['nombre']}", key="crud_nuevo_equipo_modelo")
@@ -673,6 +672,7 @@ def render_administracion(store):
             else:
                 store.agregar_equipo({
                     "tag": nuevo_tag, "categoria": categoria_sel, "especificaciones": especs,
+                    "numero_serie": numero_serie_nuevo, "capacidad": capacidad_nueva,
                     "modelo": modelo_nuevo_equipo, "tiene_vfd": tiene_vfd_nuevo,
                     "zona": "", "nivel": "", "estado_operativo": "Operativo",
                     "ultimo_mantenimiento": "", "proximo_mantenimiento": "",
@@ -718,7 +718,9 @@ def render_modo_gestor(store):
                     st.code("\n".join(diag_logo["archivos_en_carpeta"]), language=None)
         st.markdown("---")
         st.subheader("🔎 Buscador y Filtros")
-        texto_busqueda = st.text_input("Buscar por Tag", placeholder="ej: CH-01, UMA-05...")
+        texto_busqueda = st.text_input(
+            "Buscar por Tag, N° de Serie o Especificaciones",
+            placeholder="ej: CH-01, SN-12345, 194.8 TR...")
 
         niveles = sorted([n for n in df_equipos_enr["nivel"].unique() if n])
         nivel_sel = st.multiselect("Nivel / Piso", niveles)
@@ -730,7 +732,14 @@ def render_modo_gestor(store):
 
     df_filtrado = df_equipos_enr.copy()
     if texto_busqueda:
-        df_filtrado = df_filtrado[df_filtrado["tag"].str.contains(texto_busqueda, case=False)]
+        q = texto_busqueda.strip()
+        coincide = (
+            df_filtrado["tag"].str.contains(q, case=False, na=False)
+            | df_filtrado["numero_serie"].str.contains(q, case=False, na=False)
+            | df_filtrado["especificaciones"].str.contains(q, case=False, na=False)
+            | df_filtrado["capacidad"].str.contains(q, case=False, na=False)
+        )
+        df_filtrado = df_filtrado[coincide]
     if nivel_sel:
         df_filtrado = df_filtrado[df_filtrado["nivel"].isin(nivel_sel)]
     if categoria_sel:
@@ -746,13 +755,14 @@ def render_modo_gestor(store):
 
     with tab_equipos:
         st.subheader(f"📋 Listado de Equipos ({len(df_filtrado)} de {len(df_equipos_enr)})")
-        st.caption("Puedes editar directamente **Tag**, **Categoria**, **Zona** y **Nivel**. "
-                   "El resto de columnas es de solo lectura (se administra desde las otras pestanas).")
+        st.caption("Puedes editar directamente Tag, Categoria, Especificaciones, N° de Serie, "
+                   "Capacidad, Zona, Nivel, Estado Operativo y las fechas de mantenimiento. "
+                   "El Modelo y el VFD se cambian desde la pestana de Administracion.")
 
-        cols_mostrar = ["tag", "categoria", "zona", "nivel", "estado_operativo",
-                         "modelo", "tiene_vfd", "ultimo_mantenimiento",
-                         "proximo_mantenimiento", "estado_alerta"]
-        columnas_editables = ["tag", "categoria", "zona", "nivel"]
+        cols_mostrar = ["tag", "categoria", "especificaciones", "numero_serie", "capacidad",
+                         "zona", "nivel", "estado_operativo", "modelo", "tiene_vfd",
+                         "ultimo_mantenimiento", "proximo_mantenimiento", "estado_alerta"]
+        columnas_editables = COLUMNAS_EQUIPOS_EDITABLES
         columnas_solo_lectura = [c for c in cols_mostrar if c not in columnas_editables]
 
         # Se guarda el orden y los tags originales ANTES de mostrar el editor, para
@@ -766,8 +776,15 @@ def render_modo_gestor(store):
             column_config={
                 "tag": st.column_config.TextColumn("Tag", required=True),
                 "categoria": st.column_config.TextColumn("Categoria"),
+                "especificaciones": st.column_config.TextColumn("Especificaciones", width="large"),
+                "numero_serie": st.column_config.TextColumn("N° de Serie"),
+                "capacidad": st.column_config.TextColumn("Capacidad"),
                 "zona": st.column_config.TextColumn("Zona"),
                 "nivel": st.column_config.TextColumn("Nivel"),
+                "estado_operativo": st.column_config.SelectboxColumn(
+                    "Estado Operativo", options=ESTADOS_OPERATIVOS),
+                "ultimo_mantenimiento": st.column_config.TextColumn("Ultimo Mantenimiento"),
+                "proximo_mantenimiento": st.column_config.TextColumn("Proximo Mantenimiento"),
             },
             disabled=columnas_solo_lectura,
             num_rows="fixed",
@@ -777,7 +794,8 @@ def render_modo_gestor(store):
         )
 
         if st.button("💾 Guardar cambios de equipos", type="primary"):
-            actualizados, errores = guardar_cambios_equipos(store, df_mostrar, df_editado, df_equipos_enr)
+            actualizados, errores = guardar_cambios_equipos(
+                store, df_mostrar, df_editado, df_equipos_enr, columnas_editables)
 
             if actualizados:
                 st.success(f"✅ {actualizados} equipo(s) actualizado(s) correctamente.")

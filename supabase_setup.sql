@@ -20,6 +20,8 @@ create table if not exists equipos (
   tag text primary key,
   categoria text,
   especificaciones text,
+  numero_serie text,
+  capacidad text,
   modelo text,
   tiene_vfd boolean default false,
   zona text,
@@ -28,6 +30,11 @@ create table if not exists equipos (
   ultimo_mantenimiento text,
   proximo_mantenimiento text
 );
+
+-- Si ya habias corrido una version anterior de este script (sin estas
+-- columnas), esto las agrega sin afectar los datos que ya tengas.
+alter table equipos add column if not exists numero_serie text;
+alter table equipos add column if not exists capacidad text;
 
 create table if not exists modelos (
   modelo_id text primary key,

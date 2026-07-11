@@ -35,9 +35,17 @@ ESTADOS_OPERATIVOS = ["Operativo", "En Falla", "En Mantenimiento", "Fuera de Ser
 ESTADOS_ORDEN = ["Abierta", "Completada", "Cancelada"]
 
 COLUMNAS_EQUIPOS = [
-    "tag", "categoria", "especificaciones", "modelo", "tiene_vfd",
-    "zona", "nivel", "estado_operativo", "ultimo_mantenimiento",
+    "tag", "categoria", "especificaciones", "numero_serie", "capacidad", "modelo",
+    "tiene_vfd", "zona", "nivel", "estado_operativo", "ultimo_mantenimiento",
     "proximo_mantenimiento",
+]
+# Columnas editables directamente desde la tabla rapida de la pestana "Equipos".
+# "modelo" y "tiene_vfd" quedan fuera a proposito: se cambian desde la pestana
+# de Administracion ("Reasignar modelo a un equipo"), que es un flujo mas
+# guiado (afecta el plan de mantenimiento completo del equipo).
+COLUMNAS_EQUIPOS_EDITABLES = [
+    "tag", "categoria", "especificaciones", "numero_serie", "capacidad",
+    "zona", "nivel", "estado_operativo", "ultimo_mantenimiento", "proximo_mantenimiento",
 ]
 COLUMNAS_MODELOS = [
     "modelo_id", "nombre", "componentes", "parametros", "umbral_dias",
@@ -402,6 +410,7 @@ NOTAS_CATEGORIA = {
 def _fila_equipo(tag, categoria, especs, modelo, tiene_vfd=False):
     return {
         "tag": tag, "categoria": categoria, "especificaciones": especs,
+        "numero_serie": "", "capacidad": "",
         "modelo": modelo, "tiene_vfd": tiene_vfd, "zona": "", "nivel": "",
         "estado_operativo": "Operativo", "ultimo_mantenimiento": "",
         "proximo_mantenimiento": "",
